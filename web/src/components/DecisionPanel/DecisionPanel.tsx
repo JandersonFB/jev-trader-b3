@@ -1,11 +1,12 @@
 "use client";
 
-import type { BlockEvent } from "@/lib/types";
+import type { TickEvent } from "@/lib/types";
 import { fmtPct } from "@/lib/format";
 import styles from "./DecisionPanel.module.css";
 
 export interface DecisionPanelProps {
-  latest: BlockEvent | null;
+  latest: TickEvent | null;
+  symbol: string;
 }
 
 type Chosen = "buy" | "sell" | null;
@@ -47,7 +48,7 @@ function BarRow({ label, labelColor, active, value, fill, pct }: BarRowProps) {
   );
 }
 
-export default function DecisionPanel({ latest }: DecisionPanelProps) {
+export default function DecisionPanel({ latest, symbol }: DecisionPanelProps) {
   const decision = latest?.decision ?? null;
   const late = decision ? decision.late : true;
   // "hold" is treated as a non-decision, exactly as the feed does.
@@ -60,7 +61,7 @@ export default function DecisionPanel({ latest }: DecisionPanelProps) {
   const decided = decision !== null && !late && chosen !== null;
   const pctOf = (p: number) => (decided ? fmtPct(p) : "-");
 
-  const headline = chosen ? (chosen === "buy" ? "BUY" : "SELL") : "LATE";
+  const headline = chosen ? (chosen === "buy" ? "COMPRA" : "VENDA") : "ATRASOU";
   const headlineColor = chosen
     ? chosen === "buy"
       ? "var(--buy-ink)"
@@ -71,15 +72,15 @@ export default function DecisionPanel({ latest }: DecisionPanelProps) {
   return (
     <div className={styles.panel}>
       <section className={styles.section}>
-        <div className={styles.sectionLabel}>STANDING ORDER</div>
+        <div className={styles.sectionLabel}>ORDEM PERMANENTE</div>
         <div className={styles.order}>
-          {"> post a bid or an ask on Kuru's MON/USDC book. every block. no abstaining."}
+          {`> postar compra ou venda simulada em ${symbol || "B3"}. a cada tick. sem abster.`}
         </div>
       </section>
 
       <section className={styles.section}>
         <div className={`${styles.sectionLabel} ${styles.sectionLabelGap}`}>
-          WHICH SIDE THIS BLOCK?
+          QUAL LADO NESTE TICK?
         </div>
 
         <div className={styles.headline} style={{ color: headlineColor }}>
@@ -90,7 +91,7 @@ export default function DecisionPanel({ latest }: DecisionPanelProps) {
         </div>
 
         <BarRow
-          label="buy"
+          label="compra"
           labelColor="var(--buy-ink)"
           active={chosen === "buy"}
           value={probs.buy}
@@ -98,7 +99,7 @@ export default function DecisionPanel({ latest }: DecisionPanelProps) {
           pct={pctOf(probs.buy)}
         />
         <BarRow
-          label="sell"
+          label="venda"
           labelColor="var(--sell-ink)"
           active={chosen === "sell"}
           value={probs.sell}

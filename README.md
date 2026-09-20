@@ -1,70 +1,68 @@
-# jev-trader
+# jev-trader-b3
 
-One decision every Monad block. A TypeSafe Jev model watches the Kuru MON-USDC order book and answers buy or sell every ~300 ms. Every block posts a real post-only limit order on that side, one tick inside the touch, replacing the last one. Fills happen when a taker hits it, so the bot earns the spread instead of paying it. A small server streams every block to the dashboard.
+Uma decisão por tick. Adaptação do [jev-trader](https://github.com/jarrodwatts/jev-trader) para a B3:
+um modelo de IA (Jev, da TypeSafe) olha a cotação de um ativo da B3 e responde **compra ou venda**
+a cada tick. Todas as ordens e o caixa são **simulados** — nada sai da máquina. Um pequeno servidor
+(Bun + SSE) transmite cada tick para o dashboard em `web/`.
 
-## Run
+Quando o pregão está aberto (seg–sex, 10:00–18:00 horário de São Paulo) o feed busca o último preço
+real do ativo na [brapi.dev](https://brapi.dev) (fallback: Yahoo Finance). Fora do pregão, um random
+walk ancorado no último fechamento real mantém a simulação viva (`CLOSED_MODE=walk`).
+
+## Rodar
 
     cp .env.example .env
     bun install
-    bun run start
+    bun run start          # backend em :3001
+    cd web && bun install && bun run dev   # dashboard em :3000
 
-With no `PRIVATE_KEY` it dry-runs: real book, real decisions, simulated fills. Set `MODEL=jev` and `TYPESAFE_AI_API_KEY` to use Jev; the default `mock` is a momentum heuristic stand-in.
+Sem `TYPESAFE_AI_API_KEY`/`MODEL=jev` roda com o modelo `mock` (heurístico de momentum).
+Com `MODEL=jev` e a key, cada decisão é do Jev de verdade.
+
+## O que é simulado e o que é real
+
+| Real | Simulado |
+|---|---|
+| Preço do ativo (brapi/Yahoo, com delay) | Livro de ofertas (sintético: `SIM_SPREAD_BPS` em torno do mid) |
+| Decisões do modelo Jev | Execuções, caixa e posição (`PaperBroker`, BRL) |
+| Prints derivados das mudanças de preço | Custos (`SIM_FEES_BPS` por execução) |
+
+Regra de execução do simulador: a ordem postada no tick N descansa a partir do tick N+1; um print
+de venda no nosso bid (ou de compra na nossa ask) executa até o tamanho do print — mesma regra do
+dry-run original, mas com prints da B3 em vez de logs on-chain.
 
 ## Endpoints
 
-Deployed (dry run, mock model): https://jev-trader-production.up.railway.app
+- `GET /` snapshot: model, symbol, sim, último evento
+- `GET /history` últimos 1000 eventos de tick
+- `GET /events` SSE: `snapshot` na conexão, depois um evento `tick` por tick e `fill` por execução
 
-- `GET /` snapshot: model, wallet, dryRun, latest block event
-- `GET /history` last 1000 block events
-- `GET /events` SSE: `snapshot` on connect, then one `block` event per block, plus a `fill` event whenever a live order's receipt lands
-
-Every event (see `src/trader.ts` for types):
+Formato de cada evento (ver `src/trader.ts`):
 
     {
-      "block": 105488269, "ts": 1789593630676,
-      "mid": 0.022636, "bestBid": 0.022628, "bestAsk": 0.022644, "spreadBps": 7.07,
-      "decision": { "action": "buy", "probabilities": { "buy": 0.77, "sell": 0.23, "hold": 0 }, "upIn10": 0.77, "latencyMs": 81, "late": false },
-      "quote": { "side": "buy", "price": 0.022629, "size": 200, "txHash": "0x…", "gasMon": 0.0357, "cancel": [100295801], "status": "sent", "orderId": null, "capped": false },
+      "tick": 42, "ts": 1789867185214, "marketOpen": false,
+      "mid": 48.54, "bestBid": 48.52, "bestAsk": 48.56, "spreadBps": 8.24,
+      "decision": { "action": "buy", "probabilities": {"buy": 0.66, "sell": 0.34, "hold": 0}, "upIn10": 0.66, "latencyMs": 80, "late": false },
+      "quote": { "side": "buy", "price": 48.53, "size": 100, "status": "sim", "orderId": 3, "capped": false },
       "fill": null,
-      "resting": { "bidMon": 200, "askMon": 200 },
-      "position": { "side": "short", "size": 200, "entryPrice": 0.022633, "unrealizedUsd": -0.0006, "unrealizedMon": -0.027 },
-      "totals": { "blocks": 3, "decisions": 3, "quotes": 3, "fills": 1, "reverted": 0, "lateBlocks": 0, "jevUsd": 0.000004, "gasMon": 0.107, "gasUsd": 0.0024, "realizedUsd": 0, "pnlUsd": -0.003, "pnlMon": -0.13, "pnlPct": -0.003 }
+      "resting": { "bidShares": 100, "askShares": 0 },
+      "position": { "side": "flat", "size": 0, "entryPrice": null, "unrealizedBrl": 0 },
+      "totals": { "ticks": 3, "decisions": 3, "quotes": 3, "fills": 2, "lateTicks": 0, "jevUsd": 0.000023, "feesBrl": 0.97, "realizedBrl": 1, "pnlBrl": 0.03, "pnlPct": 0 }
     }
-
-Every block the model is asked about the move over `HORIZON_BLOCKS` (default 100, ~30 s) and answers `buy` or `sell`. `quote` is the order that block put on the book: a post-only limit order of `TRADE_SIZE_MON` on that side, `QUOTE_INSIDE_TICKS` inside the touch (clamped to the touch when the spread is too tight), in one `batchUpdate` that also cancels everything we had resting (`cancel`). `hold` appears only with `decision.late: true`, when the model missed the block and nothing was posted. When the position cap (or, live, margin funds) blocks a side, the quote goes on the other side with `capped: true` and `probabilities` still show the model's call. `resting` is our size known to be on the book after this block. `upIn10` equals the buy probability.
-
-Live sends are fired and forgotten, so the `block` event carries the **intent**: `status: "sent"`, `gasMon` is `gasLimit x (last known base fee + priority)`. Monad charges the gas limit, so that is the real cost whether the order lands or not. The receipt arrives a block or two later as its own SSE event:
-
-    event: quote
-    data: { "block": 105488269, "quote": { …, "status": "placed", "orderId": 100295812, "gasMon": 0.0357 } }
-
-`status` becomes `placed` (with the order id) or `reverted` (the book moved through the price before the tx landed, or a cancelled order had already filled). No receipt after 10 blocks gives `lost`. Fills are not in our own transactions: someone else's taker order hits our resting one, and the Trade log for it arrives via the same `eth_getLogs` poll that feeds the model. Each block with fills gets its own SSE event, and `position`, `realizedUsd` and `fills` update then:
-
-    event: fill
-    data: { "block": 105488271, "fill": { "side": "buy", "size": 200, "price": 0.022629, "txHash": "0x…", "orderId": 100295812, "simulated": false } }
-
-`txHash` is the taker's transaction. In a dry run the quote is `status: "sim"`: the order rests for one block and a real print crossing its price fills it (`simulated: true`).
 
 ## Layout
 
     src/config.ts   env
-    src/chain.ts    block feed (WebSocket newHeads + polling backstop, newest block only), raw RPC
-    src/book.ts     one-eth_call order book reader (decodes getL2Book, merges the AMM vault)
-    src/market.ts   Kuru: read book, hand-encoded batchUpdate (cancel + post-only place), margin deposits, local nonce, async confirmation
+    src/feed.ts     feed de cotações B3 (brapi.dev + fallback Yahoo, horário do pregão, walk fora do pregão)
+    src/book.ts     livro sintético a partir da cotação (spread + profundidade estimada)
+    src/broker.ts   PaperBroker: caixa/custódia simulados em BRL, preço da ordem, taxas
     src/model.ts    Model interface, JevModel (AI SDK experimental_evaluate), MockModel
-    src/trader.ts   the loop: one in flight, hold when late, position and P&L accounting
+    src/trader.ts   o loop: um em voo, `late` quando atrasado, posição e P&L em BRL
     src/server.ts   Bun.serve: snapshot, history, SSE
 
-## The 300 ms budget
+    bun run scripts/probe-quotes.ts   # sanity check do feed de cotações
 
-A decision and an order have to fit in one block, so the hot loop makes exactly two RPC round trips:
-one `eth_call` for the book (~18 ms on the public RPC, `READ_RPC_URL`) and one `eth_sendRawTransaction`
-(`RPC_URL`), which returns as soon as the tx is accepted. Nothing else is on the path — no
-`eth_estimateGas` (Monad charges gas on the limit, so the limit is hardcoded or derived once at
-startup), no `eth_sendRawTransactionSync` (it blocks until the tx is Proposed), no gas price lookup
-(static type-2 fees: `MAX_FEE_GWEI` cap, 2 gwei priority; the effective price is base + priority).
-Receipts, the fee estimate and the vault check run off the hot path on later blocks. Measured in a
-dry run with the mock model: read p50 18 ms, whole loop p50 100 ms (80 ms of it the mock's inference stand-in).
+## Para ligar um broker real depois
 
-    bun run scripts/bench-read.ts     # book reader vs the SDK: exactness and latency
-    bun run scripts/dry-encode.ts     # signs a buy and a sell offline, asserts the calldata matches the SDK
+O ponto de troca é `src/broker.ts`: implemente a mesma interface (`quotePrice`, `send`, `applyFill`,
+`balance`) chamando a API da corretora, e alimente `src/feed.ts` com um market-data real da B3.

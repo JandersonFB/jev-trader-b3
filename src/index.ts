@@ -1,41 +1,40 @@
 import { config } from "./config";
-import { startBlockFeed } from "./chain";
-import { Market } from "./market";
+import { QuoteFeed } from "./feed";
+import { PaperBroker } from "./broker";
 import { createModel } from "./model";
 import { Trader } from "./trader";
-import { log10 } from "./book";
 import { startServer } from "./server";
 
-const market = new Market();
-await market.init();
+const feed = new QuoteFeed();
+const broker = new PaperBroker();
 const model = createModel();
 
 const server = startServer(
-  { model: model.name, wallet: market.address, dryRun: config.dryRun, market: config.market, startedAt: Date.now() },
+  { model: model.name, symbol: config.symbol, currency: "BRL", sim: true, startedAt: Date.now() },
   () => trader.history,
 );
 const trader = new Trader(
-  market,
+  broker,
+  feed,
   model,
   (e, t) => {
     server.broadcast(e);
     if (e.decision && !e.decision.late) {
       const p = e.decision.probabilities;
       const q = e.quote;
-      const quote = !q ? " NO QUOTE (cap or funds on both sides)" : ` ${q.side.toUpperCase()} ${q.size} @ ${q.price.toFixed(6)}${q.capped ? " capped" : ""}${q.status === "sim" ? " (sim)" : ` cancel ${q.cancel.length} ${q.txHash}`}`;
-      console.log(`#${e.block} ${e.mid.toFixed(6)} b${(p.buy * 100).toFixed(0)} s${(p.sell * 100).toFixed(0)} ${e.decision.latencyMs}ms${quote} pnl $${e.totals.pnlUsd}${t ? ` · read ${t.readMs}ms loop ${t.loopMs}ms` : ""}`);
+      const quote = !q ? " SEM ORDEM (cap ou caixa nos dois lados)" : ` ${q.side === "buy" ? "COMPRA" : "VENDA"} ${q.size} @ ${q.price.toFixed(2)}${q.capped ? " capped" : ""} (sim)`;
+      console.log(
+        `#${e.tick} ${e.mid.toFixed(2)} c${(p.buy * 100).toFixed(0)} v${(p.sell * 100).toFixed(0)} ${e.decision.latencyMs}ms${quote} pnl R$${e.totals.pnlBrl}${t ? ` · loop ${t.loopMs}ms` : ""}`,
+      );
     }
   },
-  (block, fill) => {
-    server.broadcastFill(block, fill);
-    console.log(`#${block} FILL ${fill.side} ${fill.size} @ ${fill.price.toFixed(6)}${fill.simulated ? " (sim)" : ` order ${fill.orderId} ${fill.txHash}`}`);
-  },
-  (block, quote) => {
-    server.broadcastQuote(block, quote);
-    if (quote.status !== "placed") console.log(`#${block} ${quote.status.toUpperCase()} ${quote.side} @ ${quote.price.toFixed(6)} gas ${quote.gasMon.toFixed(6)} MON ${quote.txHash}`);
+  (tick, fill) => {
+    server.broadcastFill(tick, fill);
+    console.log(`#${tick} FILL ${fill.side === "buy" ? "COMPRA" : "VENDA"} ${fill.size} @ ${fill.price.toFixed(2)} (sim) ordem ${fill.orderId} taxa R$${fill.feeBrl.toFixed(4)}`);
   },
 );
-trader.attachTradeFeed(log10(market.params.sizePrecision));
 
-console.log(`jev-trader · model=${model.name} · post-only ${config.quoteInsideTicks} tick inside the touch · horizon ${config.horizonBlocks} blocks · ${config.dryRun ? "DRY RUN" : `wallet ${market.address}`} · market ${config.market} · read ${config.readRpcUrl} · :${config.port}`);
-startBlockFeed((block) => trader.onBlock(block));
+console.log(
+  `jev-trader-b3 · model=${model.name} · ${config.symbol} a cada ${config.pollMs}ms · SIMULAÇÃO · banca R$${config.bankrollBrl} · lote ${config.tradeShares} · pregão ${config.marketOpen}-${config.marketClose} (fecha: ${config.closedMode}) · :${config.port}`,
+);
+feed.start((tick) => trader.onTick(tick));

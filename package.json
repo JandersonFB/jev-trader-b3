@@ -1,5 +1,5 @@
 {
-  "name": "jev-trader",
+  "name": "jev-trader-b3",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
@@ -12,12 +12,11 @@
   },
   "dependencies": {
     "@ai-sdk/typesafe-ai": "^3.0.0",
-    "@kuru-labs/kuru-sdk": "^0.0.95",
-    "ai": "^7.0.103",
-    "ethers": "5"
+    "ai": "^7.0.103"
   },
   "scripts": {
     "start": "bun run src/index.ts",
-    "dev": "bun --watch run src/index.ts"
+    "dev": "bun --watch run src/index.ts",
+    "typecheck": "tsc --noEmit"
   }
 }

@@ -1,79 +1,62 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { BlockEvent, ConnectionState, Meta } from "@/lib/types";
-import { fmtInt, shortAddr } from "@/lib/format";
+import type { ConnectionState, Meta, TickEvent } from "@/lib/types";
+import { fmtInt } from "@/lib/format";
 import styles from "./Header.module.css";
 
 export interface HeaderProps {
   meta: Meta | null;
-  latest: BlockEvent | null;
+  latest: TickEvent | null;
   connection: ConnectionState;
 }
 
 /** Only shown when we are NOT live. Live is the silent, default state. */
 const OFFLINE_LABEL: Partial<Record<ConnectionState, string>> = {
-  connecting: "connecting",
-  reconnecting: "reconnecting",
+  connecting: "conectando",
+  reconnecting: "reconectando",
 };
 
 export default function Header({ meta, latest, connection }: HeaderProps) {
-  const [copied, setCopied] = useState(false);
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (copyTimer.current) clearTimeout(copyTimer.current);
-    },
-    [],
-  );
-
-  const wallet = meta?.wallet ?? null;
-
-  const onCopy = useCallback(() => {
-    if (!wallet) return;
-    try {
-      void navigator.clipboard?.writeText(wallet)?.catch(() => {});
-    } catch {
-      /* clipboard unavailable, still flash "copied" so the click feels alive */
-    }
-    setCopied(true);
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => setCopied(false), 1200);
-  }, [wallet]);
-
   const model = meta?.model ?? null;
   const isJev = (model ?? "").toLowerCase().startsWith("jev");
   const offline = OFFLINE_LABEL[connection] ?? null;
+  const closed = latest ? !latest.marketOpen : false;
 
   return (
     <div className={styles.header}>
-      <span className={styles.brand}>‖ Jev Trader</span>
+      <span className={styles.brand}>‖ Jev Trader B3</span>
 
-      <span className={styles.block}>block {latest ? fmtInt(latest.block) : "-"}</span>
+      <span className={styles.block}>tick {latest ? fmtInt(latest.tick) : "-"}</span>
 
       <span className={styles.spacer} />
 
+      {closed ? (
+        <span
+          className={styles.badge}
+          style={{ background: "var(--badge-standin-bg)", color: "var(--badge-standin-fg)" }}
+          title="Fora do pregão: preços simulados ancorados no último fechamento real"
+        >
+          pregão fechado
+        </span>
+      ) : null}
+
       {offline ? <span className={styles.offline}>{offline}</span> : null}
 
-      <button
-        type="button"
-        className={styles.wallet}
-        onClick={onCopy}
-        disabled={!wallet}
-        title={wallet ?? "no wallet, dry run"}
-        aria-label={wallet ? `Copy wallet address ${wallet}` : "Dry run"}
+      {meta?.symbol ? <span className={styles.wallet}>{meta.symbol}</span> : null}
+
+      <span
+        className={styles.badge}
+        style={{ background: "var(--badge-standin-bg)", color: "var(--badge-standin-fg)" }}
+        title="Conta e ordens simuladas em BRL"
       >
-        {copied ? "copied" : wallet ? shortAddr(wallet) : "dry run"}
-      </button>
+        simulação
+      </span>
 
       {model ? (
         <span
           className={styles.badge}
           style={{
-            background: isJev
-              ? "var(--badge-jev-bg)"
-              : "var(--badge-standin-bg)",
+            background: isJev ? "var(--badge-jev-bg)" : "var(--badge-standin-bg)",
             color: isJev ? "var(--badge-jev-fg)" : "var(--badge-standin-fg)",
           }}
         >

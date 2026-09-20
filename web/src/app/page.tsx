@@ -8,10 +8,11 @@ import StatsRow from "@/components/StatsRow/StatsRow";
 import { useFeed } from "@/lib/useFeed";
 import styles from "./page.module.css";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://jev-trader-production.up.railway.app";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 export default function Page() {
   const feed = useFeed(API_URL);
+  const symbol = feed.meta?.symbol ?? "";
 
   return (
     <div className="card">
@@ -20,11 +21,11 @@ export default function Page() {
       <div className={styles.main}>
         <div className={styles.left}>
           <div className={styles.chartWrap}>
-            <FlowChart events={feed.events} latest={feed.latest} />
+            <FlowChart events={feed.events} latest={feed.latest} symbol={symbol} />
           </div>
         </div>
         <div className={styles.right}>
-          <DecisionPanel latest={feed.latest} />
+          <DecisionPanel latest={feed.latest} symbol={symbol} />
           <Feed events={feed.events} />
         </div>
       </div>

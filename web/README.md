@@ -1,7 +1,7 @@
-# Jev Trader — web
+# Jev Trader B3 — web
 
-Next.js (App Router, TypeScript, CSS Modules — no Tailwind) frontend for Jev Trader:
-one AI trade decision every Monad block.
+Frontend Next.js (App Router, TypeScript, CSS Modules — sem Tailwind) do Jev Trader B3:
+uma decisão de IA por tick de cotação da B3, em conta simulada.
 
 ## Run
 
@@ -12,20 +12,19 @@ bun run dev      # http://localhost:3000
 bun run build
 ```
 
-Use Bun only — npm is broken on this machine.
+Use Bun only.
 
 ## Config
 
-Copy `.env.example` to `.env.local`. `NEXT_PUBLIC_API_URL` points at the backend
-(default `https://jev-trader-production.up.railway.app`); the app opens an
-EventSource on `$NEXT_PUBLIC_API_URL/events`.
+Copie `.env.example` para `.env.local`. `NEXT_PUBLIC_API_URL` aponta para o backend
+(default `http://localhost:3001`); o app abre um EventSource em `$NEXT_PUBLIC_API_URL/events`.
 
 ## Layout
 
-- `src/lib/types.ts` — wire types (`BlockEvent`, `Decision`, `Fill`, `Meta`, …)
-- `src/lib/useFeed.ts` — SSE hook: snapshot / block / fill / ping, 1000-event
-  window, 1s→10s reconnect backoff, `connection` state, `avgLatencyMs`
-- `src/lib/useUptime.ts` — `useUptime(startedAt)` → ticking `"hh:mm:ss"`
-- `src/lib/format.ts` — number/address/tx formatting
-- `src/app/globals.css` — design tokens, `pulse`/`breathe` keyframes, `.card`
-- `src/components/<Name>/<Name>.tsx` — UI components (one folder each)
+- `src/lib/types.ts` — wire types (`TickEvent`, `Decision`, `Fill`, `Meta`, …)
+- `src/lib/useFeed.ts` — SSE hook: snapshot / tick / fill / ping, janela de 1000 eventos,
+  reconexão 1s→10s, `connection` state, `avgLatencyMs`
+- `src/lib/useUptime.ts` — `useUptime(startedAt)` → `"hh:mm:ss"`
+- `src/lib/format.ts` — formatação BRL/preço/números em pt-BR
+- `src/app/globals.css` — design tokens, `.card`
+- `src/components/<Name>/<Name>.tsx` — componentes (uma pasta cada)

@@ -1,30 +1,32 @@
-/** Formatting helpers — see CONTRACT.md. All are pure and SSR-safe. */
+/** Formatting helpers. All are pure and SSR-safe. */
 
-const INT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const INT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
+const BRL2 = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const BRL4 = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
 function safe(n: number | null | undefined): number {
   return typeof n === "number" && Number.isFinite(n) ? n : 0;
 }
 
-/** 105416201 -> "105,416,201" */
+/** 105416201 -> "105.416.201" */
 export function fmtInt(n: number | null | undefined): string {
   return INT.format(Math.round(safe(n)));
 }
 
-/** 0.0222354 -> "0.022235" (6 decimals, MON/USDC ticks) */
+/** 48.5 -> "48,50" (tick da B3: R$ 0,01) */
 export function fmtPrice(n: number | null | undefined): string {
-  return safe(n).toFixed(6);
+  return safe(n).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** 0.0045 -> "$0.0045"; negatives -> "-$0.0045" */
-export function fmtUsd(n: number | null | undefined, d = 4): string {
+/** 1234.56 -> "R$ 1.234,56"; negatives handled by Intl */
+export function fmtBrl(n: number | null | undefined, d = 2): string {
+  return (d === 4 ? BRL4 : BRL2).format(safe(n));
+}
+
+/** -12.34 -> "-R$ 12,34" com sinal explícito: "+R$ 12,34" */
+export function fmtSignedBrl(n: number | null | undefined, d = 2): string {
   const v = safe(n);
-  return `${v < 0 ? "-" : ""}$${Math.abs(v).toFixed(d)}`;
-}
-
-/** 0.0213 -> "0.021 MON" */
-export function fmtMon(n: number | null | undefined, d = 3): string {
-  return `${safe(n).toFixed(d)} MON`;
+  return `${v >= 0 ? "+" : "-"}${(d === 4 ? BRL4 : BRL2).format(Math.abs(v))}`;
 }
 
 /** 0.62 -> "62%" */
@@ -32,25 +34,20 @@ export function fmtPct(p: number | null | undefined): string {
   return `${Math.round(safe(p) * 100)}%`;
 }
 
-/** 0.62 -> "0.62" (two-decimal confidence) */
+/** 0.62 -> "0,62" (confiança com duas casas) */
 export function fmtConf(p: number | null | undefined): string {
-  return safe(p).toFixed(2);
+  return safe(p).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Signed number with a forced +/- sign: (0.003, 3) -> "+0.003" */
+/** Signed number with a forced +/- sign: (0.003, 3) -> "+0,003" */
 export function fmtSigned(n: number | null | undefined, d = 3): string {
   const v = safe(n);
-  return `${v >= 0 ? "+" : "-"}${Math.abs(v).toFixed(d)}`;
+  return `${v >= 0 ? "+" : "-"}${Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d })}`;
 }
 
-/** -0.0012 -> "-0.001 MON"; 0.003 -> "+0.003 MON" */
-export function fmtSignedMon(n: number | null | undefined, d = 3): string {
-  return `${fmtSigned(n, d)} MON`;
-}
-
-/** 0.0012 (a ratio) -> "+0.12%" */
-export function fmtSignedPct(p: number | null | undefined, d = 2): string {
-  return `${fmtSigned(safe(p) * 100, d)}%`;
+/** 100 -> "100 ações" via plain int */
+export function fmtShares(n: number | null | undefined): string {
+  return INT.format(Math.round(safe(n)));
 }
 
 /** 107 -> "107 ms" */
@@ -76,20 +73,4 @@ export function hhmmss(ms: number): string {
 
 function pad(n: number): string {
   return n < 10 ? `0${n}` : String(n);
-}
-
-/** "0x7F3a...9C4e" */
-export function shortAddr(a: string | null | undefined): string {
-  if (!a) return "";
-  return a.length <= 12 ? a : `${a.slice(0, 6)}…${a.slice(-4)}`;
-}
-
-/** "0x8f2c..." */
-export function shortTx(h: string | null | undefined): string {
-  if (!h) return "";
-  return h.length <= 6 ? h : `${h.slice(0, 6)}…`;
-}
-
-export function txUrl(h: string): string {
-  return `https://monadvision.com/tx/${h}`;
 }
