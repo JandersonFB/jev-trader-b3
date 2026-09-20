@@ -94,7 +94,7 @@ export class Trader {
       this.lastBook = book;
       this.mids.push(book.mid);
       if (this.mids.length > 400) this.mids.shift();
-      this.harvest(); // prints acumulados desde o último tick executam ordens descansando
+      const tickFill = this.harvest(tick); // prints desde o último tick executam ordens descansando
 
       const decision = await this.model.decide(this.buildState(tick, book));
       const wanted: Side = decision.action === "sell" ? "sell" : "buy";
@@ -112,7 +112,9 @@ export class Trader {
         this.orders.clear(); // a ordem anterior é substituída
         this.orders.set(quote.orderId, { side, price: quote.price, size: quote.size, tick });
       }
-      this.emit(tick, book, decision, quote, false, { readMs: Math.round(readMs), loopMs: Math.round(performance.now() - t0) });
+      this.emit(tick, book, decision, quote, false, { readMs: Math.round(readMs), loopMs: Math.round(performance.now() - t0) }, tickFill);
+      // o broadcast do fill sai depois do tick para o SSE chegar na ordem certa
+      if (tickFill) this.onFill(tick, tickFill);
     } catch (e) {
       console.error(`tick ${tick}:`, (e as Error).message);
     } finally {
@@ -128,10 +130,12 @@ export class Trader {
   }
 
   /**
-   * Uma ordem simulada posta no tick N vale a partir de N+1. Um print de venda no nosso bid
-   * (ou de compra na nossa ask) teria nos pego primeiro: executa até o tamanho do print.
+   * Prints desde o último tick executam ordens descansando — uma ordem posta no tick N vale a
+   * partir de N+1: print de venda no nosso bid (ou compra na nossa ask) executa até o tamanho
+   * do print. Fills do tick em andamento são retornados para entrar direto no TickEvent emitido;
+   * fills de prints de ticks passados (ex.: tick pulado por `late`) são anexados retroativamente.
    */
-  private harvest() {
+  private harvest(currentTick: number): Fill | null {
     const fills: (Fill & { tick: number })[] = [];
     for (const p of this.feed.drainPrints()) {
       for (const [id, o] of this.orders) {
@@ -146,18 +150,24 @@ export class Trader {
         fills.push({ ...fill, tick: p.tick });
       }
     }
-    if (!fills.length) return;
+    if (!fills.length) return null;
     const byTick = new Map<number, Fill[]>();
     for (const f of fills) {
       this.applyFill(f);
       byTick.set(f.tick, [...(byTick.get(f.tick) ?? []), f]);
     }
-    for (const [tick, fs] of byTick) {
+    let current: Fill | null = null;
+    for (const [t, fs] of byTick) {
       const fill = aggregate(fs);
-      const e = this.history.find((h) => h.tick === tick);
+      if (t === currentTick) {
+        current = fill;
+        continue;
+      }
+      const e = this.history.find((h) => h.tick === t);
       if (e) e.fill = fill;
-      this.onFill(tick, fill);
+      this.onFill(t, fill);
     }
+    return current;
   }
 
   private restingShares(side: Side) {
@@ -231,7 +241,7 @@ export class Trader {
     return this.position.shares ? this.position.shares * (mid - this.entryPrice()!) : 0;
   }
 
-  private emit(tick: number, book: Book, decision: Decision | null, quote: Quote | null, late: boolean, timing?: Timing) {
+  private emit(tick: number, book: Book, decision: Decision | null, quote: Quote | null, late: boolean, timing?: Timing, fill: Fill | null = null) {
     const t = this.totals;
     const unrealized = this.unrealizedBrl(book.mid);
     t.pnlBrl = t.realizedBrl + unrealized - t.feesBrl;
@@ -254,7 +264,7 @@ export class Trader {
             late: false,
           },
       quote,
-      fill: null,
+      fill,
       resting: { bidShares: this.restingShares("buy"), askShares: this.restingShares("sell") },
       position: {
         side: this.position.shares > 0 ? "long" : this.position.shares < 0 ? "short" : "flat",
